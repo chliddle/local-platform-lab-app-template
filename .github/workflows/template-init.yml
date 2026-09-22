@@ -1,0 +1,93 @@
+name: template-init
+
+# Runs once, on the first push to a repo created from this template, and
+# then deletes itself. Renames the Go module path, app/binary/k8s-object
+# name, and container image throughout the repo to match the new repo --
+# an app team using this template should never need to touch anything
+# but their own application code.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  init:
+    # Never runs on the template repo itself, only on repos generated from it.
+    if: github.repository != 'chliddle/local-platform-lab-app-1'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check whether this repo has already been initialized
+        id: check
+        run: |
+          if [ -f .github/workflows/template-init.yml ]; then
+            echo "already_initialized=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_initialized=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rename app throughout the repo
+        if: steps.check.outputs.already_initialized == 'false'
+        run: |
+          set -euo pipefail
+
+          old_module="github.com/chliddle/local-platform-lab-app-1"
+          new_module="github.com/${{ github.repository }}"
+
+          old_name="hello-world"
+          # Repo name, lowercased, with anything that isn't a valid
+          # Kubernetes object name / Go string char collapsed to "-".
+          new_name="$(echo '${{ github.event.repository.name }}' | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+|-+$//g')"
+
+          echo "renaming module: $old_module -> $new_module"
+          echo "renaming app:    $old_name -> $new_name"
+
+          # Explicit file list, not grep-discovered: the Dockerfile also
+          # references the module path (in its ldflags -X args) despite
+          # not being a .go file or go.mod -- easy to miss with a
+          # find/grep filtered by extension.
+          find . -name "*.go" -not -path "./.git/*" -print0 | xargs -0 sed -i "s|$old_module|$new_module|g"
+          sed -i "s|$old_module|$new_module|g" go.mod Dockerfile
+
+          sed -i "s/$old_name/$new_name/g" \
+            main.go \
+            Makefile \
+            Dockerfile \
+            internal/buildinfo/buildinfo.go \
+            internal/handlers/handlers_test.go \
+            deploy/base/deployment.yaml \
+            deploy/base/service.yaml \
+            deploy/overlays/dev/kustomization.yaml \
+            deploy/overlays/dev/patch-environment.yaml \
+            deploy/overlays/prod/kustomization.yaml \
+            deploy/overlays/prod/patch-environment.yaml \
+            .github/workflows/ci.yml \
+            .github/workflows/release.yml
+
+          # semantic-release infers repositoryUrl from the git remote
+          # correctly for a freshly-generated repo (no rename/redirect
+          # history to confuse it) -- drop the hardcoded override rather
+          # than templating yet another value.
+          python3 -c "
+          import json
+          with open('.releaserc.json') as f:
+              config = json.load(f)
+          config.pop('repositoryUrl', None)
+          with open('.releaserc.json', 'w') as f:
+              json.dump(config, f, indent=2)
+              f.write('\n')
+          "
+
+          sed -i "s/local-platform-lab-app-1/${{ github.event.repository.name }}/g" package.json README.md
+
+      - name: Commit and remove this workflow
+        if: steps.check.outputs.already_initialized == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/template-init.yml
+          git add -A
+          git commit -m "chore: initialize app from template"
+          git push origin main
