@@ -81,10 +81,15 @@ docker run -p 8080:8080 -e ENVIRONMENT=local hello-world:local
 hardcoded secrets before it's made. [zizmor](https://github.com/zizmorcore/zizmor)
 scans every workflow change for dangerous GitHub Actions patterns
 (`pull_request_target` misuse, template injection, excessive
-permissions, unpinned actions) -- the same check also runs as a required
-CI job (`security lint`), with online audits enabled there; the local
-hook runs offline only, so it never depends on a GitHub token being
-present. Both carry over automatically to every repo generated from this
+permissions, unpinned actions) -- the same check also runs as a CI job
+(`security lint`), with online audits enabled there. **Not** a required
+status check here specifically: this repo's own automation (`ci.yml`'s
+digest-bump commit, `release.yml`'s prod promotion, `template-init.yml`)
+pushes bot-authored commits directly to `main`, and GitHub rejects any
+direct push whose commit hasn't already had a required check run against
+it -- which a just-created commit never has. Required on the platform
+repo (`local-platform-lab`), which has no such automation. Both hook
+layers carry over automatically to every repo generated from this
 template.
 
 ```bash
