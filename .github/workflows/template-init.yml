@@ -1,10 +1,15 @@
 name: template-init
 
 # Runs once, on the first push to a repo created from this template, and
-# then deletes itself. Renames the Go module path, app/binary/k8s-object
-# name, and container image throughout the repo to match the new repo --
-# an app team using this template should never need to touch anything
-# but their own application code.
+# then no-ops forever after (guarded by a sentinel file, not by deleting
+# itself -- GITHUB_TOKEN can never modify files under .github/workflows/,
+# under any permissions configuration; confirmed by testing, not
+# assumption). Renames the Go module path and app/Kubernetes-object name
+# throughout the repo to match the new repo -- an app team using this
+# template should never need to touch anything but their own application
+# code. ci.yml/release.yml need no renaming at all: their IMAGE is
+# ghcr.io/${{ github.repository }}, already correct for any repo from the
+# first push.
 on:
   push:
     branches: [main]
@@ -14,28 +19,18 @@ jobs:
     # Never runs on the template repo itself, only on repos generated from it.
     if: github.repository != 'chliddle/local-platform-lab-app-1'
     runs-on: ubuntu-latest
-    # workflows: write is required in addition to contents: write -- this
-    # job edits .github/workflows/ci.yml + release.yml and deletes
-    # template-init.yml itself, and GitHub blocks GITHUB_TOKEN from
-    # touching workflow files at all without this explicit grant, even
-    # with default_workflow_permissions set to write on the repo (that
-    # setting doesn't cover workflow files, as a guard against workflows
-    # modifying other workflows). Confirmed by testing: this job failed
-    # with "refusing to allow a GitHub App to ... without `workflows`
-    # permission" without it.
     permissions:
       contents: write
-      workflows: write
     steps:
       - uses: actions/checkout@v7
 
       - name: Check whether this repo has already been initialized
         id: check
         run: |
-          if [ -f .github/workflows/template-init.yml ]; then
-            echo "already_initialized=false" >> "$GITHUB_OUTPUT"
-          else
+          if [ -f .github/.template-initialized ]; then
             echo "already_initialized=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_initialized=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Rename app throughout the repo
@@ -46,12 +41,18 @@ jobs:
           old_module="github.com/chliddle/local-platform-lab-app-1"
           new_module="github.com/${{ github.repository }}"
 
-          old_name="hello-world"
+          old_repo="local-platform-lab-app-1"
           # Repo name, lowercased, with anything that isn't a valid
-          # Kubernetes object name / Go string char collapsed to "-".
+          # Kubernetes object name / GHCR image name char collapsed to
+          # "-". Used both as the app/k8s-object name and, implicitly via
+          # ci.yml's dynamic ghcr.io/${{ github.repository }}, the image
+          # name -- keep repo names lowercase-hyphenated for these to
+          # actually match.
           new_name="$(echo '${{ github.event.repository.name }}' | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+|-+$//g')"
+          old_name="hello-world"
 
           echo "renaming module: $old_module -> $new_module"
+          echo "renaming repo:   $old_repo -> ${{ github.event.repository.name }}"
           echo "renaming app:    $old_name -> $new_name"
 
           # Explicit file list, not grep-discovered: the Dockerfile also
@@ -61,10 +62,12 @@ jobs:
           find . -name "*.go" -not -path "./.git/*" -print0 | xargs -0 sed -i "s|$old_module|$new_module|g"
           sed -i "s|$old_module|$new_module|g" go.mod Dockerfile
 
-          sed -i "s/$old_name/$new_name/g" \
+          # Both the short app/object name and the repo/image name --
+          # deploy manifests reference both (k8s object names use the
+          # former, the image: line uses the latter).
+          sed -i "s/$old_name/$new_name/g; s/$old_repo/$new_name/g" \
             main.go \
             Makefile \
-            Dockerfile \
             internal/buildinfo/buildinfo.go \
             internal/handlers/handlers_test.go \
             deploy/base/deployment.yaml \
@@ -72,9 +75,9 @@ jobs:
             deploy/overlays/dev/kustomization.yaml \
             deploy/overlays/dev/patch-environment.yaml \
             deploy/overlays/prod/kustomization.yaml \
-            deploy/overlays/prod/patch-environment.yaml \
-            .github/workflows/ci.yml \
-            .github/workflows/release.yml
+            deploy/overlays/prod/patch-environment.yaml
+
+          sed -i "s/$old_repo/${{ github.event.repository.name }}/g" package.json README.md
 
           # semantic-release infers repositoryUrl from the git remote
           # correctly for a freshly-generated repo (no rename/redirect
@@ -90,14 +93,14 @@ jobs:
               f.write('\n')
           "
 
-          sed -i "s/local-platform-lab-app-1/${{ github.event.repository.name }}/g" package.json README.md
+          mkdir -p .github
+          touch .github/.template-initialized
 
-      - name: Commit and remove this workflow
+      - name: Commit
         if: steps.check.outputs.already_initialized == 'false'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          rm .github/workflows/template-init.yml
           git add -A
           git commit -m "chore: initialize app from template"
           git push origin main
