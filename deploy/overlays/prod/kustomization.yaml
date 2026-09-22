@@ -16,6 +16,6 @@ patches:
 # promotes the exact digest already validated in deploy/overlays/dev
 # (never rebuilds) whenever semantic-release cuts a new version.
 images:
-- digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+- digest: sha256:0bd650c54f52c01c29cea0ed12f6574b355a2257292e3084ef3df7b41e6b4059
   name: ghcr.io/chliddle/local-platform-lab-app-template
   newName: ghcr.io/chliddle/local-platform-lab-app-template
