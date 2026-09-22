@@ -1,5 +1,5 @@
 {
-  "name": "local-platform-lab-app-1",
+  "name": "local-platform-lab-app-template",
   "private": true,
   "devDependencies": {
     "semantic-release": "25.0.9",

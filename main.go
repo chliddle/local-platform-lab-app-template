@@ -11,8 +11,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/chliddle/local-platform-lab-app-1/internal/handlers"
-	"github.com/chliddle/local-platform-lab-app-1/internal/middleware"
+	"github.com/chliddle/local-platform-lab-app-template/internal/handlers"
+	"github.com/chliddle/local-platform-lab-app-template/internal/middleware"
 )
 
 func main() {

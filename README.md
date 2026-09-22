@@ -1,4 +1,4 @@
-# local-platform-lab-app-1
+# local-platform-lab-app-template
 
 A **template** app-team service repo for the [local-platform-lab](https://github.com/chliddle/local-platform-lab)
 platform. Demonstrates and enables self-service deployment: this repo
@@ -12,9 +12,11 @@ releases.
 template" on GitHub to create your own repo from this one, then push.
 A one-time `template-init` workflow renames everything (Go module path,
 app/binary/Kubernetes-object name, container image) to match your new
-repo automatically, then deletes itself. From then on, all you touch is
-`main.go`/`internal/` -- your application code. Nothing else needs any
-manual configuration.
+repo automatically, then no-ops on every push after (guarded by a
+sentinel file, not self-deletion -- the default `GITHUB_TOKEN` can never
+modify files under `.github/workflows/`, under any permissions
+configuration). From then on, all you touch is `main.go`/`internal/` --
+your application code. Nothing else needs any manual configuration.
 
 ## What's here
 

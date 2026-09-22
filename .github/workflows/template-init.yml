@@ -17,7 +17,7 @@ on:
 jobs:
   init:
     # Never runs on the template repo itself, only on repos generated from it.
-    if: github.repository != 'chliddle/local-platform-lab-app-1'
+    if: github.repository != 'chliddle/local-platform-lab-app-template'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -38,10 +38,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          old_module="github.com/chliddle/local-platform-lab-app-1"
+          old_module="github.com/chliddle/local-platform-lab-app-template"
           new_module="github.com/${{ github.repository }}"
 
-          old_repo="local-platform-lab-app-1"
+          old_repo="local-platform-lab-app-template"
           # Repo name, lowercased, with anything that isn't a valid
           # Kubernetes object name / GHCR image name char collapsed to
           # "-". Used both as the app/k8s-object name and, implicitly via

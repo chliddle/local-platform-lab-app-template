@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/chliddle/local-platform-lab-app-1/internal/buildinfo"
+	"github.com/chliddle/local-platform-lab-app-template/internal/buildinfo"
 )
 
 // Version handles "/version": JSON build/runtime identity, used by

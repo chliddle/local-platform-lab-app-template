@@ -18,7 +18,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: hello-world
-          image: ghcr.io/chliddle/local-platform-lab-app-1:placeholder
+          image: ghcr.io/chliddle/local-platform-lab-app-template:placeholder
           ports:
             - name: http
               containerPort: 8080
