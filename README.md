@@ -78,8 +78,14 @@ docker run -p 8080:8080 -e ENVIRONMENT=local hello-world:local
 ## Pre-commit hooks
 
 [gitleaks](https://github.com/gitleaks/gitleaks) scans every commit for
-hardcoded secrets before it's made. Carries over automatically to every
-repo generated from this template.
+hardcoded secrets before it's made. [zizmor](https://github.com/zizmorcore/zizmor)
+scans every workflow change for dangerous GitHub Actions patterns
+(`pull_request_target` misuse, template injection, excessive
+permissions, unpinned actions) -- the same check also runs as a required
+CI job (`security lint`), with online audits enabled there; the local
+hook runs offline only, so it never depends on a GitHub token being
+present. Both carry over automatically to every repo generated from this
+template.
 
 ```bash
 brew install pre-commit   # or: pip install pre-commit
