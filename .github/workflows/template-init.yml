@@ -14,8 +14,18 @@ jobs:
     # Never runs on the template repo itself, only on repos generated from it.
     if: github.repository != 'chliddle/local-platform-lab-app-1'
     runs-on: ubuntu-latest
+    # workflows: write is required in addition to contents: write -- this
+    # job edits .github/workflows/ci.yml + release.yml and deletes
+    # template-init.yml itself, and GitHub blocks GITHUB_TOKEN from
+    # touching workflow files at all without this explicit grant, even
+    # with default_workflow_permissions set to write on the repo (that
+    # setting doesn't cover workflow files, as a guard against workflows
+    # modifying other workflows). Confirmed by testing: this job failed
+    # with "refusing to allow a GitHub App to ... without `workflows`
+    # permission" without it.
     permissions:
       contents: write
+      workflows: write
     steps:
       - uses: actions/checkout@v7
 
