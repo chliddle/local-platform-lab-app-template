@@ -1,0 +1,12 @@
+# Go
+bin/
+*.test
+coverage.out
+
+# Node (semantic-release tooling)
+node_modules/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
