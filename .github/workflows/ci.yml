@@ -146,11 +146,20 @@ jobs:
           cd /tmp/smoke-deploy
           kustomize edit set image ${{ env.IMAGE }}=hello-world:smoke-test
           kubectl apply -k .
-          kubectl rollout status deployment/hello-world --timeout=90s
+          # Discovered, not assumed: this workflow file is never touched by
+          # template-init.yml (GITHUB_TOKEN can't edit .github/workflows/*),
+          # but the Deployment/Service *object names* it deploys ARE renamed
+          # per-app by template-init. Hardcoding "hello-world" here worked
+          # only for this template repo itself (never renamed, since
+          # template-init skips it) and broke smoke-test on every actually
+          # generated app -- confirmed via a real failing CI run.
+          app_name=$(kubectl get deployment -o jsonpath='{.items[0].metadata.name}')
+          echo "APP_NAME=$app_name" >> "$GITHUB_ENV"
+          kubectl rollout status "deployment/$app_name" --timeout=90s
 
       - name: Smoke test
         run: |
-          kubectl port-forward svc/hello-world 18080:8080 &
+          kubectl port-forward "svc/$APP_NAME" 18080:8080 &
           sleep 3
           bash scripts/smoke-test.sh http://localhost:18080
 
