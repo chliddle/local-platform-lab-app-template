@@ -37,7 +37,7 @@ jobs:
       # pushed a follow-up commit onto main. semantic-release refuses to
       # release from a commit it considers "behind" the remote HEAD, so
       # pinning here would be actively counterproductive.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0 # semantic-release needs full history to analyze conventional commits
 
@@ -49,25 +49,25 @@ jobs:
           digest=$(python3 .github/scripts/read_image_digest.py deploy/overlays/dev/kustomization.yaml "${{ env.IMAGE }}")
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
 
-      - uses: cycjimmy/semantic-release-action@v6
+      - uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
         id: semantic
         with:
           semantic_version: 25.0.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
         if: steps.semantic.outputs.new_release_published == 'true'
 
       # Testing GITHUB_TOKEN again now that IMAGE is dynamic -- see the
       # same note in ci.yml.
       - name: Log in to GHCR
         if: steps.semantic.outputs.new_release_published == 'true'
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
