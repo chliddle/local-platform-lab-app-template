@@ -93,3 +93,8 @@ platform-team steps, in `local-platform-lab`:
    the existing `hello_world`/`ghcr_pull` pattern. This is the one place
    onboarding still touches Terraform -- always on the platform side,
    never the app team's.
+
+## License
+
+[MIT](LICENSE) -- carries over automatically to every repo generated
+from this template.
