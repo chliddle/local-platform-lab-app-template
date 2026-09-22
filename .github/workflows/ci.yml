@@ -79,6 +79,16 @@ jobs:
           build-args: |
             VERSION=${{ github.sha }}
             GIT_COMMIT_SHA=${{ github.sha }}
+          # This package's GHCR page showed the platform repo as its
+          # "source" -- a sticky label from whenever the package was first
+          # created, back when it was pushed by that repo's own CI, before
+          # the app moved to its own repo. No push since has carried this
+          # label at all (confirmed via `docker buildx imagetools inspect
+          # --format '{{json .Image.Config.Labels}}'`, which returned null
+          # for the latest image). Setting it explicitly here corrects it
+          # going forward.
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
   # Proves the app actually runs, not just that it builds: spins up a
   # throwaway Kind cluster (same node image the real dev/prod clusters
