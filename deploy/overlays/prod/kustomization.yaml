@@ -16,6 +16,6 @@ patches:
 # promotes the exact digest already validated in deploy/overlays/dev
 # (never rebuilds) whenever semantic-release cuts a new version.
 images:
-- digest: sha256:b8c1ec74e3e0e9179cfd217367139268a651f7ca5ad96022931dc8300a733308
+- digest: sha256:cdfaf14b76f22e0e39b9597526be547248ada78c274b04f95eaf7cf606f69726
   name: ghcr.io/chliddle/hello-world
   newName: ghcr.io/chliddle/hello-world
