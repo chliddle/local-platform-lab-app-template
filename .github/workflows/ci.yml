@@ -24,6 +24,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -54,6 +56,8 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
@@ -114,6 +118,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
@@ -154,7 +160,7 @@ jobs:
           mkdir -p /tmp/smoke-deploy
           cp deploy/base/*.yaml /tmp/smoke-deploy/
           cd /tmp/smoke-deploy
-          kustomize edit set image ${{ env.IMAGE }}=hello-world:smoke-test
+          kustomize edit set image "$IMAGE"=hello-world:smoke-test
           kubectl apply -k .
           # Discovered, not assumed: this workflow file is never touched by
           # template-init.yml (GITHUB_TOKEN can't edit .github/workflows/*),
@@ -187,18 +193,31 @@ jobs:
     permissions:
       contents: write
     steps:
+      # persist-credentials stays at its default (true): the "Commit and
+      # push" step below needs the credential checkout leaves in
+      # .git/config to push at all, and nothing else in this job runs
+      # untrusted third-party code that could read it out from under a
+      # legitimate step.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
+        with: # zizmor: ignore[artipacked] needed for this job's own later git push
           ref: main
 
       - name: Install kustomize
         run: |
-          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash -s 5.4.2
+          # install_kustomize.sh calls the unauthenticated GitHub releases
+          # API to resolve the download URL -- shares the runner IP's 60/hr
+          # rate limit with everything else hitting api.github.com, and was
+          # observed failing ("Github rate-limiter failed the request") on
+          # the platform repo's own CI. Downloading the pinned release
+          # asset directly bypasses the API entirely.
+          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.2/kustomize_v5.4.2_linux_amd64.tar.gz" | tar xz
           sudo mv kustomize /usr/local/bin/kustomize
 
       - name: Set image digest
         working-directory: deploy/overlays/dev
-        run: kustomize edit set image ${{ env.IMAGE }}=${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+        env:
+          BUILD_DIGEST: ${{ needs.build.outputs.digest }}
+        run: kustomize edit set image "$IMAGE=$IMAGE@$BUILD_DIGEST"
 
       - name: Commit and push
         run: |

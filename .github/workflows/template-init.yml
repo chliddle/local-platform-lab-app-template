@@ -22,7 +22,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # persist-credentials stays at its default (true): the "Commit" step
+      # below needs the credential checkout leaves in .git/config to push
+      # at all, and nothing else in this job runs untrusted third-party
+      # code that could read it out from under a legitimate step.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 # zizmor: ignore[artipacked] needed for this job's own later git push
 
       - name: Check whether this repo has already been initialized
         id: check
@@ -35,6 +39,15 @@ jobs:
 
       - name: Rename app throughout the repo
         if: steps.check.outputs.already_initialized == 'false'
+        # REPO_NAME goes through env:, not a direct ${{ }} expansion in the
+        # script below -- a repo name is GitHub-charset-constrained
+        # (alphanumeric/hyphen/underscore/period only, no shell
+        # metacharacters) so isn't practically exploitable here, but
+        # interpolating any ${{ }} expression directly into a run: block is
+        # a flagged anti-pattern (zizmor: template-injection) regardless of
+        # whether a given value happens to be constrained today.
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
 
@@ -48,11 +61,11 @@ jobs:
           # ci.yml's dynamic ghcr.io/${{ github.repository }}, the image
           # name -- keep repo names lowercase-hyphenated for these to
           # actually match.
-          new_name="$(echo '${{ github.event.repository.name }}' | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+|-+$//g')"
+          new_name="$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+|-+$//g')"
           old_name="hello-world"
 
           echo "renaming module: $old_module -> $new_module"
-          echo "renaming repo:   $old_repo -> ${{ github.event.repository.name }}"
+          echo "renaming repo:   $old_repo -> $REPO_NAME"
           echo "renaming app:    $old_name -> $new_name"
 
           # Explicit file list, not grep-discovered: the Dockerfile also
@@ -77,7 +90,7 @@ jobs:
             deploy/overlays/prod/kustomization.yaml \
             deploy/overlays/prod/patch-environment.yaml
 
-          sed -i "s/$old_repo/${{ github.event.repository.name }}/g" package.json README.md
+          sed -i "s/$old_repo/$REPO_NAME/g" package.json README.md
 
           # semantic-release infers repositoryUrl from the git remote
           # correctly for a freshly-generated repo (no rename/redirect

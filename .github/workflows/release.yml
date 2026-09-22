@@ -4,7 +4,12 @@ name: release
 # pipeline actually succeeding -- not an inference from which paths this
 # workflow happens to touch. workflow_run also fires for PR runs of "ci",
 # so the job condition below additionally restricts to push events on main.
-on:
+# workflow_run is flagged generically since it usually runs with full
+# base-repo permissions regardless of a fork's involvement, but the
+# job-level `if:` below requires workflow_run.event == 'push', which a
+# fork's pull_request-triggered "ci" run can never satisfy -- verified by
+# hand, not just this suppression.
+on: # zizmor: ignore[dangerous-triggers] see comment above; gated on event == 'push' in the job's if:
   workflow_run:
     workflows: ["ci"]
     types: [completed]
@@ -37,8 +42,14 @@ jobs:
       # pushed a follow-up commit onto main. semantic-release refuses to
       # release from a commit it considers "behind" the remote HEAD, so
       # pinning here would be actively counterproductive.
+      #
+      # persist-credentials stays at its default (true) deliberately: the
+      # final "Commit and push" step in this same job needs the credential
+      # checkout leaves in .git/config to push at all, and nothing else in
+      # this job runs untrusted third-party code that could read it out
+      # from under a legitimate step.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
+        with: # zizmor: ignore[artipacked] see comment above -- needed for this job's own later git push
           fetch-depth: 0 # semantic-release needs full history to analyze conventional commits
 
       - run: pip install --quiet pyyaml
@@ -46,7 +57,7 @@ jobs:
       - name: Read the digest already validated in dev
         id: dev-digest
         run: |
-          digest=$(python3 .github/scripts/read_image_digest.py deploy/overlays/dev/kustomization.yaml "${{ env.IMAGE }}")
+          digest=$(python3 .github/scripts/read_image_digest.py deploy/overlays/dev/kustomization.yaml "$IMAGE")
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -77,10 +88,13 @@ jobs:
       # new semver -- never rebuilds, per CLAUDE.md's promotion model.
       - name: Tag GHCR image with release version
         if: steps.semantic.outputs.new_release_published == 'true'
+        env:
+          NEW_VERSION: ${{ steps.semantic.outputs.new_release_version }}
+          DEV_DIGEST: ${{ steps.dev-digest.outputs.digest }}
         run: |
           docker buildx imagetools create \
-            --tag "${{ env.IMAGE }}:${{ steps.semantic.outputs.new_release_version }}" \
-            "${{ env.IMAGE }}@${{ steps.dev-digest.outputs.digest }}"
+            --tag "$IMAGE:$NEW_VERSION" \
+            "$IMAGE@$DEV_DIGEST"
 
       - name: Install kustomize
         if: steps.semantic.outputs.new_release_published == 'true'
@@ -97,13 +111,18 @@ jobs:
       - name: Promote the same digest to prod
         if: steps.semantic.outputs.new_release_published == 'true'
         working-directory: deploy/overlays/prod
-        run: kustomize edit set image "${{ env.IMAGE }}=${{ env.IMAGE }}@${{ steps.dev-digest.outputs.digest }}"
+        env:
+          DEV_DIGEST: ${{ steps.dev-digest.outputs.digest }}
+        run: kustomize edit set image "$IMAGE=$IMAGE@$DEV_DIGEST"
 
       - name: Commit and push
         if: steps.semantic.outputs.new_release_published == 'true'
+        env:
+          NEW_VERSION: ${{ steps.semantic.outputs.new_release_version }}
+          DEV_DIGEST: ${{ steps.dev-digest.outputs.digest }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add deploy/overlays/prod/kustomization.yaml
-          git commit -m "chore(deploy): promote hello-world@${{ steps.dev-digest.outputs.digest }} (${{ steps.semantic.outputs.new_release_version }}) to prod"
+          git commit -m "chore(deploy): promote hello-world@${DEV_DIGEST} (${NEW_VERSION}) to prod"
           git push origin main
