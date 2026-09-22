@@ -19,6 +19,6 @@ patches:
 # a fresh package under a name this repo's own workflow creates, avoiding
 # the stale cross-repo package-linkage issue the old name had.
 images:
-- digest: sha256:9110144e581beae0c9a5267554519d7ac84d5f8c9261e835832a50add02731f6
+- digest: sha256:45b93a731e3f842a5f2757b2b3aef1c425d9b892faabb6bf076de4bf9a26ea32
   name: ghcr.io/chliddle/local-platform-lab-app-template
   newName: ghcr.io/chliddle/local-platform-lab-app-template
