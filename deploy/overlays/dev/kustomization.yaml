@@ -14,7 +14,11 @@ patches:
 
 # Placeholder digest -- CI overwrites this with the real one via
 # `kustomize edit set image` after building and pushing to GHCR.
+# Reset to placeholder: the image moved from ghcr.io/.../hello-world to
+# ghcr.io/.../local-platform-lab-app-1 (dynamic, ghcr.io/${{ github.repository }}),
+# a fresh package under a name this repo's own workflow creates, avoiding
+# the stale cross-repo package-linkage issue the old name had.
 images:
-- digest: sha256:560e139cac816f784c6c64cec6527f97284ba261cf95a47c2dfc7cd94583e812
-  name: ghcr.io/chliddle/hello-world
-  newName: ghcr.io/chliddle/hello-world
+- digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  name: ghcr.io/chliddle/local-platform-lab-app-1
+  newName: ghcr.io/chliddle/local-platform-lab-app-1

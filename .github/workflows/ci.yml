@@ -10,7 +10,12 @@ on:
       - "deploy/**"
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/hello-world
+  # ghcr.io/<owner>/<repo-name> -- fully dynamic, so this file never needs
+  # editing for a new app (see template-init.yml, which deliberately
+  # avoids touching workflow files at all: GITHUB_TOKEN can never modify
+  # .github/workflows/*, full stop, no permission grants it -- confirmed
+  # by testing, not assumption).
+  IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
   lint-test:
@@ -50,20 +55,22 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      # Uses a PAT (CI_GITHUB_TOKEN), not the default GITHUB_TOKEN: this
-      # package was originally created by a different repo's workflow, and
-      # GitHub's per-package "Manage Actions access" grant -- despite being
-      # set to Write and login succeeding -- does not reliably extend
-      # GITHUB_TOKEN's push rights to it for personal-account packages.
-      # Confirmed by testing: same "permission_denied: write_package" error
-      # with Write access granted and a successful login.
+      # Testing GITHUB_TOKEN again now that IMAGE is fully dynamic
+      # (ghcr.io/${{ github.repository }}): the PAT workaround this repo
+      # used previously was specifically because the OLD ghcr.io/.../
+      # hello-world package had stale linkage from being created by a
+      # different repo's workflow before the platform/app split. A
+      # brand-new package under this new name, created by this repo's own
+      # first push, should auto-link correctly -- if this reverts to
+      # permission_denied again, switch back to CI_GITHUB_USERNAME/
+      # CI_GITHUB_TOKEN as before.
       - name: Log in to GHCR
         if: github.event_name == 'push'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
-          username: ${{ secrets.CI_GITHUB_USERNAME }}
-          password: ${{ secrets.CI_GITHUB_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Multi-arch (amd64 + arm64) only on the real artifact (push to main);
       # PR builds just validate the Dockerfile compiles on the runner's
