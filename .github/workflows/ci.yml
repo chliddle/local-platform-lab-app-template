@@ -50,13 +50,20 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
+      # Uses a PAT (CI_GITHUB_TOKEN), not the default GITHUB_TOKEN: this
+      # package was originally created by a different repo's workflow, and
+      # GitHub's per-package "Manage Actions access" grant -- despite being
+      # set to Write and login succeeding -- does not reliably extend
+      # GITHUB_TOKEN's push rights to it for personal-account packages.
+      # Confirmed by testing: same "permission_denied: write_package" error
+      # with Write access granted and a successful login.
       - name: Log in to GHCR
         if: github.event_name == 'push'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.CI_GITHUB_USERNAME }}
+          password: ${{ secrets.CI_GITHUB_TOKEN }}
 
       # Multi-arch (amd64 + arm64) only on the real artifact (push to main);
       # PR builds just validate the Dockerfile compiles on the runner's
