@@ -75,6 +75,17 @@ docker build -t hello-world:local .
 docker run -p 8080:8080 -e ENVIRONMENT=local hello-world:local
 ```
 
+## Pre-commit hooks
+
+[gitleaks](https://github.com/gitleaks/gitleaks) scans every commit for
+hardcoded secrets before it's made. Carries over automatically to every
+repo generated from this template.
+
+```bash
+brew install pre-commit   # or: pip install pre-commit
+pre-commit install        # once per clone -- wires the hook into .git/hooks/
+```
+
 ## Onboarding a new app (platform team)
 
 The app team's side is fully automatic (see above) -- these are the
