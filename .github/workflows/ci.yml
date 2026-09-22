@@ -73,6 +73,62 @@ jobs:
             VERSION=${{ github.sha }}
             GIT_COMMIT_SHA=${{ github.sha }}
 
+  # Proves the app actually runs, not just that it builds: spins up a
+  # throwaway Kind cluster (same node image the real dev/prod clusters
+  # use), loads the just-built image directly (no registry involved, so
+  # this runs on PRs too), applies deploy/base with that local image
+  # substituted in, and asserts the platform's app contract (the 5
+  # endpoints every app on this platform must expose). Deliberately
+  # bypasses Argo CD/GitOps here -- that path is what the platform repo's
+  # own integration test exercises, against the real published image.
+  smoke-test:
+    needs: lint-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build image (local only)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: hello-world:smoke-test
+          build-args: |
+            VERSION=smoke-test
+            GIT_COMMIT_SHA=${{ github.sha }}
+
+      - name: Install kind and kustomize
+        run: |
+          curl -sLo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
+          chmod +x /usr/local/bin/kind
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash -s 5.4.2
+          sudo mv kustomize /usr/local/bin/kustomize
+
+      - name: Create cluster
+        run: |
+          kind create cluster --name smoke-test \
+            --image kindest/node:v1.29.2@sha256:51a1434a5397193442f0be2a297b488b6c919ce8a3931be0ce822606ea5ca245
+
+      - name: Load image into cluster
+        run: kind load docker-image hello-world:smoke-test --name smoke-test
+
+      - name: Deploy
+        run: |
+          mkdir -p /tmp/smoke-deploy
+          cp deploy/base/*.yaml /tmp/smoke-deploy/
+          cd /tmp/smoke-deploy
+          kustomize edit set image ${{ env.IMAGE }}=hello-world:smoke-test
+          kubectl apply -k .
+          kubectl rollout status deployment/hello-world --timeout=90s
+
+      - name: Smoke test
+        run: |
+          kubectl port-forward svc/hello-world 18080:8080 &
+          sleep 3
+          bash scripts/smoke-test.sh http://localhost:18080
+
   # Patches the built digest into the dev overlay and commits it back to
   # main so Argo CD (in the platform repo's cluster) picks it up. Uses only
   # the default GITHUB_TOKEN -- self-service means this app team never needs
@@ -81,7 +137,7 @@ jobs:
   # pushes authenticated with the default token never trigger new workflow
   # runs is a second, independent guard against a commit loop.
   update-dev-digest:
-    needs: build
+    needs: [build, smoke-test]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
