@@ -9,7 +9,7 @@ resources:
 patches:
 - path: patch-environment.yaml
   target:
-    kind: Deployment
+    kind: Rollout
     name: hello-world
 
 # Placeholder digest -- CI overwrites this with the real one via

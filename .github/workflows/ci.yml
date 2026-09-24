@@ -133,7 +133,7 @@ jobs:
             VERSION=smoke-test
             GIT_COMMIT_SHA=${{ github.sha }}
 
-      - name: Install kind and kustomize
+      - name: Install kind, kustomize, and kubectl-argo-rollouts
         run: |
           curl -sLo /tmp/kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
           chmod +x /tmp/kind
@@ -146,11 +146,33 @@ jobs:
           # asset directly bypasses the API entirely.
           curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.2/kustomize_v5.4.2_linux_amd64.tar.gz" | tar xz
           sudo mv kustomize /usr/local/bin/kustomize
+          curl -sLo /tmp/kubectl-argo-rollouts https://github.com/argoproj/argo-rollouts/releases/download/v1.10.0/kubectl-argo-rollouts-linux-amd64
+          chmod +x /tmp/kubectl-argo-rollouts
+          sudo mv /tmp/kubectl-argo-rollouts /usr/local/bin/kubectl-argo-rollouts
 
       - name: Create cluster
         run: |
           kind create cluster --name smoke-test \
             --image kindest/node:v1.29.2@sha256:51a1434a5397193442f0be2a297b488b6c919ce8a3931be0ce822606ea5ca245
+
+      - name: Install Argo Rollouts controller
+        run: |
+          # deploy/base is now a Rollout (Milestone 6, platform repo) --
+          # unlike Deployment, that CRD/controller isn't built into
+          # Kubernetes, so this throwaway cluster needs it explicitly
+          # before `kubectl apply -k` below can do anything with it. The
+          # official install.yaml (CRDs + controller + RBAC in one file)
+          # is the lightest way to get that into an ephemeral CI cluster --
+          # no Helm needed for a one-shot smoke test. --server-side:
+          # confirmed live a plain `kubectl apply` fails outright on this
+          # file's CRDs ("metadata.annotations: Too long: must have at
+          # most 262144 bytes") -- the same client-side-apply annotation
+          # limit this repo's platform counterpart already documents for
+          # ARC's/kube-prometheus-stack's/Argo Rollouts' own CRDs
+          # (pre-apply-large-crds.sh).
+          kubectl create namespace argo-rollouts
+          kubectl apply --server-side -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/download/v1.10.0/install.yaml
+          kubectl -n argo-rollouts wait --for=condition=Available deployment/argo-rollouts --timeout=120s
 
       - name: Load image into cluster
         run: kind load docker-image hello-world:smoke-test --name smoke-test
@@ -161,17 +183,27 @@ jobs:
           cp deploy/base/*.yaml /tmp/smoke-deploy/
           cd /tmp/smoke-deploy
           kustomize edit set image "$IMAGE"=hello-world:smoke-test
+          # This throwaway cluster has the Argo Rollouts controller (above)
+          # but not Istio -- trafficRouting.istio would leave the Rollout
+          # stuck (it'd try to patch a VirtualService/DestinationRule that
+          # can't exist here). Strips it for this smoke test only; the real
+          # Istio wiring is exercised live against dev/prod in the platform
+          # repo, not here. Canary steps still run (plain replica-weighted,
+          # no traffic split) so this still proves the container boots and
+          # serves traffic through a real rollout, just not the Istio part.
+          kustomize edit add patch --kind Rollout --name hello-world \
+            --patch '[{"op":"remove","path":"/spec/strategy/canary/trafficRouting"}]'
           kubectl apply -k .
           # Discovered, not assumed: this workflow file is never touched by
           # template-init.yml (GITHUB_TOKEN can't edit .github/workflows/*),
-          # but the Deployment/Service *object names* it deploys ARE renamed
+          # but the Rollout/Service *object names* it deploys ARE renamed
           # per-app by template-init. Hardcoding "hello-world" here worked
           # only for this template repo itself (never renamed, since
           # template-init skips it) and broke smoke-test on every actually
           # generated app -- confirmed via a real failing CI run.
-          app_name=$(kubectl get deployment -o jsonpath='{.items[0].metadata.name}')
+          app_name=$(kubectl get rollout -o jsonpath='{.items[0].metadata.name}')
           echo "APP_NAME=$app_name" >> "$GITHUB_ENV"
-          kubectl rollout status "deployment/$app_name" --timeout=90s
+          kubectl argo rollouts status "$app_name" --timeout=90s
 
       - name: Smoke test
         run: |
