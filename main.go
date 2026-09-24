@@ -22,7 +22,12 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", middleware.Metrics("/", handlers.Root))
+	// Fault sits inside Metrics (not outside) so an injected failure's 500
+	// still gets recorded by http_requests_total -- see
+	// internal/middleware/fault.go. Only "/" carries it: /health, /ready,
+	// and /version stay real, so probes/CI keep working and only actual
+	// user-facing traffic sees the injected fault.
+	mux.HandleFunc("/", middleware.Metrics("/", middleware.Fault(handlers.Root)))
 	mux.HandleFunc("/health", middleware.Metrics("/health", handlers.Health))
 	mux.HandleFunc("/ready", middleware.Metrics("/ready", handlers.Ready))
 	mux.HandleFunc("/version", middleware.Metrics("/version", handlers.Version))

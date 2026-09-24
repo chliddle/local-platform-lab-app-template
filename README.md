@@ -57,7 +57,7 @@ No manual approval gate: trunk-based development wants small changes to
 ship often, and a human-in-the-loop step just creates a queue. The
 promotion gate is `ci.yml` passing -- lint/test/ephemeral-cluster smoke
 test -- not yet a live canary/rollout health check (that arrives with
-Argo Rollouts, Milestone 5 in the platform repo).
+Argo Rollouts, Milestone 6 in the platform repo).
 
 **Commit messages on `main` must follow [Conventional Commits](https://www.conventionalcommits.org/)**
 (`feat:`, `fix:`, `chore:`, ...) or `release.yml` never cuts a version.
@@ -74,6 +74,15 @@ make run     # build + run on :8080
 docker build -t hello-world:local .
 docker run -p 8080:8080 -e ENVIRONMENT=local hello-world:local
 ```
+
+**`FAULT_ERROR_RATE`** (float, `0.0`-`1.0`, default `0`, read once at
+startup): injects a synthetic `500` on `/` at this rate --
+`internal/middleware/fault.go`. `/health`/`/ready`/`/version` are never
+affected, deliberately: this simulates a bad deploy that passes every
+health check but serves broken responses to real traffic, exactly the
+class of bug canary analysis / blue-green manual gates exist to catch
+(platform repo's Milestone 6: three parallel `template-test-1` deployment
+strategies compared against this same injected fault).
 
 ## Pre-commit hooks
 
