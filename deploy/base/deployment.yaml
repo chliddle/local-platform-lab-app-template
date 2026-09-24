@@ -13,6 +13,18 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: hello-world
+      # Standard prometheus.io/* pod-annotation convention -- the
+      # platform's OTel Collector (local-platform-lab's
+      # gitops/dev/platform/otel-collector.yaml) discovers and scrapes any
+      # pod carrying these annotations automatically, cluster-wide, no
+      # platform-repo change needed per onboarded app. This is the whole
+      # monitoring-onboarding story for a new app: nothing to configure,
+      # since the template already sets it. Override port/path here only
+      # if this app's /metrics ever moves off the default http port.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       imagePullSecrets:
         - name: ghcr-pull-secret
