@@ -206,9 +206,20 @@ jobs:
           kubectl argo rollouts status "$app_name" --timeout=90s
 
       - name: Smoke test
+        # A fixed sleep here is a race, not a guarantee: kubectl
+        # port-forward prints "Forwarding from..." as soon as its local
+        # listening socket is up, not once the tunnel is actually
+        # proxying through to the pod -- confirmed live via a real CI
+        # failure on template-test-1 (curl exit 7, connection refused,
+        # ~5s after the "Forwarding from" line already printed). Poll
+        # until a real connection succeeds instead of guessing a fixed
+        # delay.
         run: |
           kubectl port-forward "svc/$APP_NAME" 18080:8080 &
-          sleep 3
+          for i in $(seq 1 30); do
+            curl -s -o /dev/null "http://localhost:18080/health" && break
+            sleep 1
+          done
           bash scripts/smoke-test.sh http://localhost:18080
 
   # Patches the built digest into the dev overlay and commits it back to
