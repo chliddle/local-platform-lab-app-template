@@ -2,13 +2,21 @@ name: promote prod
 
 # Split out of release.yml: release.yml now only cuts the semantic-release
 # tag (gated on real dev health -- see that workflow); actually promoting
-# to prod is its own distinct trigger, fired by the tag push itself, not a
+# to prod is its own distinct trigger, fired by the release itself, not a
 # continuation of the same job. Per CLAUDE.md's promotion model: never
 # rebuild, promote the exact digest already validated in dev, now pinned
 # by its new semver tag instead of the raw digest for readability.
+#
+# on: release: types: [published], NOT push: tags: -- confirmed live on
+# template-test-1 this actually matters, not just a style choice:
+# @semantic-release/github creates the tag and the GitHub Release through
+# the REST API, not a literal `git push`. A real run proved this out --
+# the repo's own events feed showed a ReleaseEvent for the new tag and no
+# PushEvent at all, so push:tags never fired regardless of which token
+# cut the release.
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 # Never cancel an in-flight promotion; queue instead, so overlapping tags
 # can't race each other into the prod overlay.
@@ -26,14 +34,16 @@ jobs:
       contents: write
       packages: write
     steps:
-      # Checks out the tag ref itself (the default for a tag-triggered
-      # push event), not main's tip: a tag is an immutable pointer to the
-      # exact commit release.yml's semantic-release step tagged, which is
-      # more precise than the old release.yml's own "checkout current
-      # main" behavior (that existed only because workflow_run had no
-      # stable ref to pin to -- a tag push does).
+      # Explicitly checks out the release's own tag (a release event's
+      # default ref is the default branch, NOT the tag -- unlike an actual
+      # tag push, where GITHUB_REF is the tag itself). The tag is an
+      # immutable pointer to the exact commit release.yml's semantic-release
+      # step tagged, more precise than the old release.yml's own "checkout
+      # current main" behavior (that existed only because workflow_run had
+      # no stable ref to pin to).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with: # zizmor: ignore[artipacked] this job's own later git push needs the credential checkout leaves
+          ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
 
       - run: pip install --quiet pyyaml
@@ -46,7 +56,21 @@ jobs:
 
       - name: Derive version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: echo "version=${TAG_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Switches this same checkout from the tag (detached HEAD -- needed
+      # above only to read the digest at that exact precise commit) onto
+      # main's current tip, since the commit-and-push step below needs a
+      # real local main branch to push from, not a detached HEAD. main may
+      # have moved since the tag was cut (e.g. a concurrent push already
+      # landed its own update-dev-digest commit) -- that's fine, this step
+      # only ever touches deploy/overlays/prod, which nothing else writes.
+      - name: Switch to main for the commit
+        run: |
+          git fetch origin main
+          git checkout main
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
