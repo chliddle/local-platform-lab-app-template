@@ -18,13 +18,13 @@ patches:
 # deploy/overlays/dev (never rebuilds) -- pinning by tag here instead of
 # the raw digest is purely for readability; see release.yml's own comment
 # for the mutable-tag-vs-immutable-digest trade-off this accepts.
-images:
-- name: ghcr.io/chliddle/local-platform-lab-app-template
-  newName: ghcr.io/chliddle/local-platform-lab-app-template
   # 1.4.0 -- what release.yml had already promoted (by digest) before this
   # same commit converted this overlay to tag-based pinning; that digest
   # is the exact image already tagged v1.4.0 in GHCR (release.yml's own
   # "Tag GHCR image with release version" step, which runs before the
   # promote step), so this is a like-for-like resolution, not a behavior
   # change -- the very next release will overwrite this normally.
-  newTag: "1.4.0"
+images:
+- name: ghcr.io/chliddle/local-platform-lab-app-template
+  newName: ghcr.io/chliddle/local-platform-lab-app-template
+  newTag: 1.4.1
