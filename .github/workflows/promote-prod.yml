@@ -1,0 +1,105 @@
+name: promote prod
+
+# Split out of release.yml: release.yml now only cuts the semantic-release
+# tag (gated on real dev health -- see that workflow); actually promoting
+# to prod is its own distinct trigger, fired by the tag push itself, not a
+# continuation of the same job. Per CLAUDE.md's promotion model: never
+# rebuild, promote the exact digest already validated in dev, now pinned
+# by its new semver tag instead of the raw digest for readability.
+on:
+  push:
+    tags: ["v*"]
+
+# Never cancel an in-flight promotion; queue instead, so overlapping tags
+# can't race each other into the prod overlay.
+concurrency:
+  group: production-promotion
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      # Checks out the tag ref itself (the default for a tag-triggered
+      # push event), not main's tip: a tag is an immutable pointer to the
+      # exact commit release.yml's semantic-release step tagged, which is
+      # more precise than the old release.yml's own "checkout current
+      # main" behavior (that existed only because workflow_run had no
+      # stable ref to pin to -- a tag push does).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with: # zizmor: ignore[artipacked] this job's own later git push needs the credential checkout leaves
+          fetch-depth: 0
+
+      - run: pip install --quiet pyyaml
+
+      - name: Read the digest already validated in dev
+        id: dev-digest
+        run: |
+          digest=$(python3 .github/scripts/read_image_digest.py deploy/overlays/dev/kustomization.yaml "$IMAGE")
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tags the exact digest already built and validated in dev with the
+      # new semver -- never rebuilds, per CLAUDE.md's promotion model.
+      - name: Tag GHCR image with release version
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+          DEV_DIGEST: ${{ steps.dev-digest.outputs.digest }}
+        run: |
+          docker buildx imagetools create \
+            --tag "$IMAGE:$NEW_VERSION" \
+            "$IMAGE@$DEV_DIGEST"
+
+      - name: Install kustomize
+        run: |
+          # install_kustomize.sh calls the unauthenticated GitHub releases
+          # API to resolve the download URL -- shares the runner IP's 60/hr
+          # rate limit with everything else hitting api.github.com, and was
+          # observed failing ("Github rate-limiter failed the request") on
+          # the platform repo's own CI. Downloading the pinned release
+          # asset directly bypasses the API entirely.
+          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.2/kustomize_v5.4.2_linux_amd64.tar.gz" | tar xz
+          sudo mv kustomize /usr/local/bin/kustomize
+
+      # Same underlying image/digest either way (the tag just created above
+      # points at the exact $DEV_DIGEST already validated in dev, never
+      # rebuilt) -- prod's overlay pins by that semver tag instead of the
+      # raw digest, for readability (`kubectl get pods`/Argo CD's own UI
+      # show "v1.4.2", not a 71-char sha256 string). Trade-off: a tag is
+      # mutable at the registry level, a digest cryptographically isn't --
+      # accepted here since semantic-release-generated tags in this project
+      # are never hand-retagged and nothing untrusted has push access to
+      # this registry.
+      - name: Promote the same image, by its new semver tag, to prod
+        working-directory: deploy/overlays/prod
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+        run: kustomize edit set image "$IMAGE=$IMAGE:$NEW_VERSION"
+
+      - name: Commit and push
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deploy/overlays/prod/kustomization.yaml
+          git commit -m "chore(deploy): promote hello-world:${NEW_VERSION} to prod"
+          git push origin main

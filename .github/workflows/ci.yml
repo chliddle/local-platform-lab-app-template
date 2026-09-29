@@ -212,12 +212,21 @@ jobs:
           bash scripts/smoke-test.sh http://localhost:18080
 
   # Patches the built digest into the dev overlay and commits it back to
-  # main so Argo CD (in the platform repo's cluster) picks it up. Uses only
-  # the default GITHUB_TOKEN -- self-service means this app team never needs
-  # write access to the platform repo, only to its own. paths-ignore above
-  # keeps this commit from retriggering the pipeline; GitHub's own rule that
-  # pushes authenticated with the default token never trigger new workflow
-  # runs is a second, independent guard against a commit loop.
+  # main so Argo CD (in the platform repo's cluster) picks it up. The git
+  # push itself uses only the default GITHUB_TOKEN -- self-service means
+  # this app team never needs write access to the platform repo's
+  # *contents*, only to its own. paths-ignore above keeps this commit from
+  # retriggering the pipeline; GitHub's own rule that pushes authenticated
+  # with the default token never trigger new workflow runs is a second,
+  # independent guard against a commit loop.
+  #
+  # The final "Request dev health check" step is a narrower exception to
+  # that same-repo-only rule: it needs PLATFORM_DISPATCH_TOKEN, a repo
+  # secret holding a PAT that can fire a repository_dispatch against
+  # local-platform-lab, so that repo's own self-hosted runner (the only
+  # thing with network reach to the real dev cluster -- see its
+  # check-app-dev-health.yml) can confirm this digest is actually
+  # Synced+Healthy before release.yml is allowed to tag a version.
   update-dev-digest:
     needs: [build, smoke-test]
     runs-on: ubuntu-latest
@@ -261,3 +270,32 @@ jobs:
             git commit -m "chore(deploy): deploy hello-world@${{ github.sha }} to dev"
             git push origin main
           fi
+
+      # Assumes the platform team named this app's Argo CD Application
+      # after the repo itself when onboarding it (this template's own
+      # README says so under "Onboarding a new app") -- the one place this
+      # template can't fully automate, since the Application manifest
+      # lives in local-platform-lab, not here. release.yml only tags once
+      # this check reports success. APP_NAME doubles as service_name here
+      # (unlike template-test-1's split rolling/bluegreen/canary
+      # namespaces, this template's own deploy/base/ names the namespace
+      # AND the Service after the app, identically) -- see
+      # wait-for-sli-health.sh for what check-app-dev-health.yml's SLI
+      # gate does with it.
+      - name: Request dev health check
+        env:
+          DISPATCH_TOKEN: ${{ secrets.PLATFORM_DISPATCH_TOKEN }}
+          APP_NAME: ${{ github.event.repository.name }}
+          CALLBACK_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        # Values come in via env:, not interpolated directly into the run
+        # block -- a GitHub Actions context expansion happens before the
+        # shell ever sees it, so putting it straight in the script body is
+        # a script-injection risk (confirmed by zizmor's template-injection
+        # audit); env vars let the shell treat it as inert data instead.
+        run: |
+          curl -fsSL -X POST \
+            -H "Authorization: token ${DISPATCH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/chliddle/local-platform-lab/dispatches" \
+            -d "{\"event_type\":\"check-dev-health\",\"client_payload\":{\"apps\":\"${APP_NAME}\",\"service_name\":\"${APP_NAME}\",\"callback_repo\":\"${CALLBACK_REPO}\",\"sha\":\"${SHA}\"}}"

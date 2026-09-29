@@ -1,136 +1,56 @@
 name: release
 
-# Explicit, structural dependency on the upstream lint/test/build/push
-# pipeline actually succeeding -- not an inference from which paths this
-# workflow happens to touch. workflow_run also fires for PR runs of "ci",
-# so the job condition below additionally restricts to push events on main.
-# workflow_run is flagged generically since it usually runs with full
-# base-repo permissions regardless of a fork's involvement, but the
-# job-level `if:` below requires workflow_run.event == 'push', which a
-# fork's pull_request-triggered "ci" run can never satisfy -- verified by
-# hand, not just this suppression.
-on: # zizmor: ignore[dangerous-triggers] see comment above; gated on event == 'push' in the job's if:
-  workflow_run:
-    workflows: ["ci"]
-    types: [completed]
+# Fires only once local-platform-lab's check-app-dev-health.yml has
+# confirmed, against the REAL dev cluster's Argo CD Application (not just
+# ci.yml's own isolated, throwaway-Kind-cluster smoke test), that the
+# digest ci.yml just wrote to deploy/overlays/dev is actually
+# Synced+Healthy -- see that repo's workflow for the check itself, and
+# ci.yml's "Request dev health check" step for what triggers it.
+#
+# repository_dispatch, not workflow_run on ci.yml completing: that was the
+# old trigger, and it only proved the isolated smoke test passed, with no
+# dependency on real dev cluster health at all -- exactly the gap this
+# change closes.
+on:
+  repository_dispatch:
+    types: [dev-health-result]
 
-# Never cancel an in-flight release/promotion; queue instead, so
-# overlapping releases can't race each other into the prod overlay.
+# Never cancel an in-flight release; queue instead, so overlapping
+# releases can't race each other.
 concurrency:
   group: production-promotion
   cancel-in-progress: false
 
-env:
-  # ghcr.io/<owner>/<repo-name> -- fully dynamic, matching ci.yml. See the
-  # comment there for why.
-  IMAGE: ghcr.io/${{ github.repository }}
-
 jobs:
   release:
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
+    if: github.event.client_payload.status == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
     steps:
-      # Deliberately checks out current main, not the pinned commit that
-      # triggered this run: by the time "ci" finishes (which is what
-      # triggers this), its own update-dev-digest job has usually already
-      # pushed a follow-up commit onto main. semantic-release refuses to
-      # release from a commit it considers "behind" the remote HEAD, so
-      # pinning here would be actively counterproductive.
-      #
-      # persist-credentials stays at its default (true) deliberately: the
-      # final "Commit and push" step in this same job needs the credential
-      # checkout leaves in .git/config to push at all, and nothing else in
-      # this job runs untrusted third-party code that could read it out
-      # from under a legitimate step.
+      # Deliberately checks out current main, not the commit the health
+      # check ran against: by the time this dispatch arrives, main could in
+      # principle have moved again. semantic-release refuses to release
+      # from a commit it considers "behind" the remote HEAD, so pinning
+      # here would be actively counterproductive -- same reasoning this
+      # step already had before the trigger changed.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with: # zizmor: ignore[artipacked] see comment above -- needed for this job's own later git push
+        with: # zizmor: ignore[artipacked] this job's semantic-release step needs push access to tag
           fetch-depth: 0 # semantic-release needs full history to analyze conventional commits
-
-      - run: pip install --quiet pyyaml
-
-      - name: Read the digest already validated in dev
-        id: dev-digest
-        run: |
-          digest=$(python3 .github/scripts/read_image_digest.py deploy/overlays/dev/kustomization.yaml "$IMAGE")
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
 
+      # Uses RELEASE_TOKEN (a PAT), not the default GITHUB_TOKEN: GitHub
+      # never lets a push authenticated by the default token trigger a new
+      # workflow run (recursive-trigger prevention), which would silently
+      # stop the tag semantic-release pushes here from ever firing
+      # promote-prod.yml's `on: push: tags:` trigger. Same PAT already used
+      # for the platform-repo dispatch in ci.yml.
       - uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
         id: semantic
         with:
           semantic_version: 25.0.9
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-        if: steps.semantic.outputs.new_release_published == 'true'
-
-      # Testing GITHUB_TOKEN again now that IMAGE is dynamic -- see the
-      # same note in ci.yml.
-      - name: Log in to GHCR
-        if: steps.semantic.outputs.new_release_published == 'true'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Tags the exact digest already built and validated in dev with the
-      # new semver -- never rebuilds, per CLAUDE.md's promotion model.
-      - name: Tag GHCR image with release version
-        if: steps.semantic.outputs.new_release_published == 'true'
-        env:
-          NEW_VERSION: ${{ steps.semantic.outputs.new_release_version }}
-          DEV_DIGEST: ${{ steps.dev-digest.outputs.digest }}
-        run: |
-          docker buildx imagetools create \
-            --tag "$IMAGE:$NEW_VERSION" \
-            "$IMAGE@$DEV_DIGEST"
-
-      - name: Install kustomize
-        if: steps.semantic.outputs.new_release_published == 'true'
-        run: |
-          # install_kustomize.sh calls the unauthenticated GitHub releases
-          # API to resolve the download URL -- shares the runner IP's 60/hr
-          # rate limit with everything else hitting api.github.com, and was
-          # observed failing ("Github rate-limiter failed the request") on
-          # the platform repo's own CI. Downloading the pinned release
-          # asset directly bypasses the API entirely.
-          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.2/kustomize_v5.4.2_linux_amd64.tar.gz" | tar xz
-          sudo mv kustomize /usr/local/bin/kustomize
-
-      # Same underlying image/digest either way (the tag just created above
-      # points at the exact $DEV_DIGEST already validated in dev, never
-      # rebuilt) -- prod's overlay pins by that semver tag instead of the
-      # raw digest, for readability (kubectl/Argo CD show "v1.4.2", not a
-      # 71-char sha256 string). Trade-off: a tag is mutable at the
-      # registry level, a digest cryptographically isn't -- accepted here
-      # since semantic-release-generated tags in this project are never
-      # hand-retagged and nothing untrusted has push access to this
-      # registry.
-      - name: Promote the same image, by its new semver tag, to prod
-        if: steps.semantic.outputs.new_release_published == 'true'
-        working-directory: deploy/overlays/prod
-        env:
-          NEW_VERSION: ${{ steps.semantic.outputs.new_release_version }}
-        run: kustomize edit set image "$IMAGE=$IMAGE:$NEW_VERSION"
-
-      - name: Commit and push
-        if: steps.semantic.outputs.new_release_published == 'true'
-        env:
-          NEW_VERSION: ${{ steps.semantic.outputs.new_release_version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add deploy/overlays/prod/kustomization.yaml
-          git commit -m "chore(deploy): promote hello-world:${NEW_VERSION} to prod"
-          git push origin main
+          GITHUB_TOKEN: ${{ secrets.PLATFORM_DISPATCH_TOKEN }}
