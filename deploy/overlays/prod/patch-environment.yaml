@@ -1,12 +1,8 @@
-apiVersion: argoproj.io/v1alpha1
-kind: Rollout
-metadata:
-  name: hello-world
-spec:
-  template:
-    spec:
-      containers:
-        - name: hello-world
-          env:
-            - name: ENVIRONMENT
-              value: prod
+# JSON6902, not a strategic-merge patch -- see deploy/overlays/dev/
+# patch-environment.yaml's comment for why (confirmed live: the old
+# strategic-merge shape silently discarded the entire base container spec,
+# not just merged the env change in, since Kustomize has no merge-key
+# metadata for a third-party CRD like Rollout).
+- op: replace
+  path: /spec/template/spec/containers/0/env/0/value
+  value: prod

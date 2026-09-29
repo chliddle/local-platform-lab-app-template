@@ -1,12 +1,15 @@
-apiVersion: argoproj.io/v1alpha1
-kind: Rollout
-metadata:
-  name: hello-world
-spec:
-  template:
-    spec:
-      containers:
-        - name: hello-world
-          env:
-            - name: ENVIRONMENT
-              value: dev
+# JSON6902, not a strategic-merge patch (the shape this file used to be:
+# a partial Rollout object with just containers[0].env) -- confirmed live
+# that shape silently discarded the ENTIRE base container spec (image,
+# probes, resources, securityContext -- everything except name and env),
+# not just merged the env change in. Kustomize's strategic-merge-patch
+# relies on OpenAPI merge-key metadata (x-kubernetes-list-map-keys) to
+# know how to merge a LIST like `containers` by its `name` field --
+# that metadata only exists for built-in Kubernetes types kustomize
+# ships with (like apps/v1 Deployment), not for a third-party CRD like
+# Rollout, so it fell back to replacing the whole list wholesale with
+# whatever the patch contained. JSON6902 has no such gap: it's explicit
+# path-based operations, immune to this entire class of problem.
+- op: replace
+  path: /spec/template/spec/containers/0/env/0/value
+  value: dev

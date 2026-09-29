@@ -12,10 +12,19 @@ patches:
     kind: Rollout
     name: hello-world
 
-# Placeholder digest -- overwritten by .github/workflows/release.yml, which
-# promotes the exact digest already validated in deploy/overlays/dev
-# (never rebuilds) whenever semantic-release cuts a new version.
+# Placeholder tag -- overwritten by .github/workflows/release.yml with the
+# new semver tag (v1.4.2-style) whenever semantic-release cuts a version.
+# That tag always points at the exact digest already validated in
+# deploy/overlays/dev (never rebuilds) -- pinning by tag here instead of
+# the raw digest is purely for readability; see release.yml's own comment
+# for the mutable-tag-vs-immutable-digest trade-off this accepts.
 images:
-- digest: sha256:59d79c5fc60873edf7c6e792a6b25bca86195281ff9ac7d196b0a24430dbe2a4
-  name: ghcr.io/chliddle/local-platform-lab-app-template
+- name: ghcr.io/chliddle/local-platform-lab-app-template
   newName: ghcr.io/chliddle/local-platform-lab-app-template
+  # 1.4.0 -- what release.yml had already promoted (by digest) before this
+  # same commit converted this overlay to tag-based pinning; that digest
+  # is the exact image already tagged v1.4.0 in GHCR (release.yml's own
+  # "Tag GHCR image with release version" step, which runs before the
+  # promote step), so this is a like-for-like resolution, not a behavior
+  # change -- the very next release will overwrite this normally.
+  newTag: "1.4.0"
